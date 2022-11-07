@@ -1,0 +1,27 @@
+{
+  "name": "@dreamworld/fetch",
+  "version": "0.0.0-development",
+  "description": "This is wrap of fetch API which is retryable on failure",
+  "main": "fetch.js",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": "git@github.com:DreamworldSolutions/fetch.git",
+  "author": "Dhruval Kodinariya <dhruval@hisab.co>",
+  "license": "MIT",
+  "devDependencies": {
+    "semantic-release": "17.0.8"
+  },
+  "release": {
+    "branches": [
+      "+([0-9])?(.{+([0-9]),x}).x",
+      "main",
+      {
+          "name": "feature/*",
+          "prerelease": "${name.replace(/^feature\\//g, \"\")}",
+          "channel": "${name.replace(/^feature\\//g, \"\")}"
+      }
+    ]
+  }
+}
