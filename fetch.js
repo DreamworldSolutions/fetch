@@ -80,9 +80,10 @@ const _retryFetch = async (url, options, maxAttempts, delay) => {
  * @param {Object} options Request options. It contains `retryable`
  * @param {Number} maxAttempts Maximum retry attempt.
  * @param {Number} delay delay between retry.
+ * @param {Boolean} offlineRetry whether it should retry in offline or not.
  * @returns {Promise}
  */
-const _retryOnNetworkError = async (url, options, maxAttempts, delay) => {
+const _retryOnNetworkError = async (url, options, maxAttempts, delay, offlineRetry) => {
   let opts = { ...options };
   delete opts["retryable"];
 
@@ -104,7 +105,7 @@ const _retryOnNetworkError = async (url, options, maxAttempts, delay) => {
         return error;
       }
     },
-    { delay: NETWORK_ERROR_RETRY_TIME, maxAttempts: 0 }
+    { delay: NETWORK_ERROR_RETRY_TIME, maxAttempts: !offlineRetry ? 1 : 0 }
   );
 };
 
@@ -114,14 +115,15 @@ const _retryOnNetworkError = async (url, options, maxAttempts, delay) => {
  * @param {Object} options Request options. It contains `retryable`
  * @param {Number} maxAttempts Maximum retry attempt. Default is 5
  * @param {Number} delay delay between retry. Default is 200.
+ * @param {Boolean} offlineRetry whether it should retry in offline or not. Default is true.
  * @returns {Promise}
  */
-export default async (url, options = {}, maxAttempts = 5, delay = 200) => {
+export default async (url, options = {}, maxAttempts = 5, delay = 200, offlineRetry = true) => {
   try {
     return await _retryFetch(url, options, maxAttempts, delay);
   } catch (error) {
     if (!error.status) {
-      return await _retryOnNetworkError(url, options, maxAttempts, delay);
+      return await _retryOnNetworkError(url, options, maxAttempts, delay, offlineRetry);
     }
 
     return error;
