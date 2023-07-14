@@ -14,7 +14,10 @@
     "start": "wds --node-resolve --app-index demo/index.html --open --watch"
   },
   "dependencies": {
-    "@lifeomic/attempt": "^3.0.3"
+    "@dreamworld/pwa-helpers": "^1.17.2",
+    "@dreamworld/uuid-base62": "^1.2.0",
+    "@lifeomic/attempt": "^3.0.3",
+    "lodash-es": "^4.17.21"
   },
   "devDependencies": {
     "@web/dev-server": "^0.1.35",
@@ -30,5 +33,10 @@
         "channel": "${name.replace(/^feature\\//g, \"\")}"
       }
     ]
+  },
+  "prettier": {
+    "singleQuote": true,
+    "arrowParens": "avoid",
+    "printWidth": 140
   }
 }

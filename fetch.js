@@ -1,12 +1,15 @@
-import { retry } from "@lifeomic/attempt";
-
+import { retry } from '@lifeomic/attempt';
+import reducer from './reducer.js';
+import * as actions from './actions.js';
+import { uuidBase62 } from '@dreamworld/uuid-base62';
+let store;
 const NETWORK_ERROR_RETRY_TIME = 2000; //In milliseconds.
 
 /**
  * @param {Object} res Response received from the server.
  * @return {Boolean} True if response is server error, false otherwise.
  */
-const _isServerError = (res) => {
+const _isServerError = res => {
   return res.status && res.status >= 500 && res.status <= 599;
 };
 
@@ -14,10 +17,8 @@ const _isServerError = (res) => {
  * It returns true if request is retryable, false otherwise.
  */
 const _isRetryableError = (res, options) => {
-  let method = options.method || "GET";
-  let retryable =
-    options.retryable ??
-    ((["GET", "PUT", "DELETE"].indexOf(method) !== -1 && true) || false);
+  /* let method = options.method || 'GET';
+  let retryable = options.retryable ?? ((['GET', 'PUT', 'DELETE'].indexOf(method) !== -1 && true) || false);
 
   if (!_isServerError(res)) {
     return false;
@@ -25,9 +26,9 @@ const _isRetryableError = (res, options) => {
 
   if (retryable) {
     return true;
-  }
+  } */
 
-  return false;
+  return !!options.retryable;
 };
 
 /**
@@ -40,7 +41,7 @@ const _isRetryableError = (res, options) => {
  */
 const _retryFetch = async (url, options, maxAttempts, delay) => {
   let opts = { ...options };
-  delete opts["retryable"];
+  delete opts['retryable'];
 
   return await retry(
     async () => {
@@ -50,6 +51,9 @@ const _retryFetch = async (url, options, maxAttempts, delay) => {
         throw res;
       }
 
+      if (store) {
+        store.dispatch(actions.requestSucceed(options.requestId, options.requestType));
+      }
       return res;
     },
     {
@@ -59,15 +63,13 @@ const _retryFetch = async (url, options, maxAttempts, delay) => {
       maxAttempts,
       handleError(err, context) {
         if (_isRetryableError(err, options)) {
-          console.warn(
-            `_retryFetch: failed. It will be retried. attempt=${
-              context.attemptNum + 1
-            }, url=${url}. error=`,
-            err
-          );
+          console.warn(`_retryFetch: failed. It will be retried. attempt=${context.attemptNum + 1}, url=${url}. error=`, err);
           return;
         }
 
+        if (store) {
+          store.dispatch(actions.requestFailed(options.requestId, options.requestType));
+        }
         context.abort();
       },
     }
@@ -85,7 +87,7 @@ const _retryFetch = async (url, options, maxAttempts, delay) => {
  */
 const _retryOnNetworkError = async (url, options, maxAttempts, delay, offlineRetry) => {
   let opts = { ...options };
-  delete opts["retryable"];
+  delete opts['retryable'];
 
   return await retry(
     async () => {
@@ -119,6 +121,12 @@ const _retryOnNetworkError = async (url, options, maxAttempts, delay, offlineRet
  * @returns {Promise}
  */
 export default async (url, options = {}, maxAttempts = 5, delay = 200, offlineRetry = true) => {
+  if (store) {
+    options.requestId = uuidBase62();
+    const method = options.method || 'GET';
+    options.requestType = options.read || method === 'GET' ? 'read' : 'write';
+    store.dispatch(actions.request(options.requestId, options.requestType));
+  }
   try {
     return await _retryFetch(url, options, maxAttempts, delay);
   } catch (error) {
@@ -128,4 +136,12 @@ export default async (url, options = {}, maxAttempts = 5, delay = 200, offlineRe
 
     return error;
   }
+};
+
+export const initRedux = _store => {
+  store = _store;
+
+  store.addReducers({
+    'fetch-requests': reducer,
+  });
 };
