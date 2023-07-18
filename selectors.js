@@ -15,5 +15,5 @@ export const pendingWrites = state => {
  * @returns {Boolean}
  */
 export const pendingReads = state => {
-  return get(state, `fetch-requests.pendingWrites`);
+  return get(state, `fetch-requests.pendingReads`);
 };
