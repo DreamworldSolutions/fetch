@@ -17,18 +17,8 @@ const _isServerError = res => {
  * It returns true if request is retryable, false otherwise.
  */
 const _isRetryableError = (res, options) => {
-  /* let method = options.method || 'GET';
-  let retryable = options.retryable ?? ((['GET', 'PUT', 'DELETE'].indexOf(method) !== -1 && true) || false);
-
-  if (!_isServerError(res)) {
-    return false;
-  }
-
-  if (retryable) {
-    return true;
-  } */
-
-  return !!options.retryable;
+  let retryable = options.retryable ?? (res.status && res.status == 503);
+  return !!retryable ? true : false;
 };
 
 /**
