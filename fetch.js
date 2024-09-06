@@ -41,7 +41,7 @@ const _retryFetch = async (url, options, maxAttempts, delay) => {
         throw res;
       }
 
-      if (store) {
+      if (store && !options?.skipReduxAction) {
         store.dispatch(actions.requestSucceed(options.requestId, options.requestType));
       }
       return res;
@@ -57,7 +57,7 @@ const _retryFetch = async (url, options, maxAttempts, delay) => {
           return;
         }
 
-        if (store) {
+        if (store && !options?.skipReduxAction) {
           store.dispatch(actions.requestFailed(options.requestId, options.requestType));
         }
         context.abort();
@@ -111,7 +111,7 @@ const _retryOnNetworkError = async (url, options, maxAttempts, delay, offlineRet
  * @returns {Promise}
  */
 export default async (url, options = {}, maxAttempts = 5, delay = 200, offlineRetry = true) => {
-  if (store) {
+  if (store && !options?.skipReduxAction) {
     options.requestId = uuidBase62();
     const method = options.method || 'GET';
     options.requestType = options.read || method === 'GET' ? 'read' : 'write';
