@@ -17,6 +17,8 @@ const _isServerError = res => {
  * It returns true if request is retryable, false otherwise.
  */
 const _isRetryableError = (res, options) => {
+  if(res.status >= 200 && res.status <= 299) return false;
+
   let retryable = options.retryable ?? (res.status && res.status == 503);
   return !!retryable ? true : false;
 };
@@ -120,7 +122,7 @@ export default async (url, options = {}, maxAttempts = 5, delay = 200, offlineRe
   try {
     return await _retryFetch(url, options, maxAttempts, delay);
   } catch (error) {
-    if (!error.status) {
+    if (!error.status && error.type !== 'cors') {
       return await _retryOnNetworkError(url, options, maxAttempts, delay, offlineRetry);
     }
 
