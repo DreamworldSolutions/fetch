@@ -29,18 +29,3 @@ User can specify explicitly whether a request is retryable or not through option
 ```javascript
 import fetch from '@dreamworld/fetch';
 ```
-
-### Get Pending write / read requests
-
-```js
-// store.js
-import { initRedux as initFetchRequestRedux } from '@dreamworld/fetch';
-initFetchRequestRedux(store);
-
-// Get Pending writes / reads.
-import * as fetchSelectors from '@dreamworld/fetch/selectors.js';
-
-fetchSelectors.pendingWrites(state); // { 5AqmtnIKAReGLCeUFcvj5b: 1689319833142, ... }
-
-fetchSelectors.pendingReads(state); // { 9BqmtnIKAReGLCeUFcvj5b: 1689319833142, ... }
-```

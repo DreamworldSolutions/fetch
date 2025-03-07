@@ -47,18 +47,6 @@
     lodash-es "^4.17.21"
     pwa-helpers "^0.9.1"
 
-"@dreamworld/uuid-base62@^1.2.0":
-  version "1.2.0"
-  resolved "https://registry.yarnpkg.com/@dreamworld/uuid-base62/-/uuid-base62-1.2.0.tgz#e77ccefba9556f5ee300bb7b706cfe8969546458"
-  integrity sha512-2IHUggH5hV1C/rHAqQYSlMpfeEC8OmPcHlh8r0xK6YfDKnK0zg78MgO9NYGkl4R8a/IEn0y0YAzq2EP47Mcolw==
-  dependencies:
-    "@dreamworld/uuid" "^1.0.1"
-
-"@dreamworld/uuid@^1.0.1":
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/@dreamworld/uuid/-/uuid-1.0.1.tgz#ccc8564d9962fabf7e3e6037b715d6b6e83bcf3e"
-  integrity sha512-JY4YXBqouJncJrRHV+2DrPmUe0CQCQY85jvg92Av7kEnoYM3FEnVDggr2yFttUQOrEhPbZ5Ipg49fn6TLOtcSw==
-
 "@gar/promisify@^1.0.1":
   version "1.1.3"
   resolved "https://registry.yarnpkg.com/@gar/promisify/-/promisify-1.1.3.tgz#555193ab2e3bb3b6adc3d551c9c030d9e860daf6"

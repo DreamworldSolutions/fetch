@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "@dreamworld/pwa-helpers": "^1.17.2",
-    "@dreamworld/uuid-base62": "^1.2.0",
     "@lifeomic/attempt": "^3.0.3",
     "lodash-es": "^4.17.21"
   },
