@@ -12,9 +12,134 @@ const _isRetryableError = (res, options) => {
 };
 
 /**
+ * Performs XMLHttpRequest-based upload with progress tracking support.
+ * Used when body is FormData and onUploadProgress callback is provided.
+ * Properly handles AbortController signals and cleans up event listeners to prevent memory leaks.
+ * @param {String} url API endpoint url
+ * @param {Object} options Request options including FormData body and onUploadProgress
+ * @returns {Promise} Promise that resolves to Response-like object
+ */
+const _uploadWithProgress = (url, options) => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const { method = 'POST', headers = {}, body, onUploadProgress, signal } = options;
+
+    // Handle AbortController signal for cancellation
+    let abortHandler = null;
+    if (signal) {
+      if (signal.aborted) {
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+        return;
+      }
+      
+      // Listen for abort signal
+      abortHandler = () => {
+        xhr.abort();
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+      };
+      signal.addEventListener('abort', abortHandler);
+    }
+
+    // Cleanup function to remove event listener
+    const cleanup = () => {
+      if (abortHandler && signal) {
+        signal.removeEventListener('abort', abortHandler);
+        abortHandler = null;
+      }
+    };
+
+    // Set up the request
+    xhr.open(method.toUpperCase(), url, true);
+
+    // Set headers (excluding content-type for FormData - browser sets it automatically with boundary)
+    Object.keys(headers).forEach(key => {
+      if (key.toLowerCase() !== 'content-type') {
+        xhr.setRequestHeader(key, headers[key]);
+      }
+    });
+
+    // Track upload progress if callback is provided
+    if (onUploadProgress && xhr.upload) {
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          const sentBytes = event.loaded;
+          const totalBytes = event.total;
+          const percentage = totalBytes > 0 ? sentBytes / totalBytes : 0;
+          
+          // Call the progress callback with the required parameters
+          onUploadProgress({
+            sentBytes,
+            totalBytes,
+            percentage,
+            speed: 0 // TODO: Implement speed calculation in future enhancement
+          });
+        }
+      });
+    }
+
+    // Handle successful response
+    xhr.addEventListener('load', () => {
+      cleanup(); // Remove abort event listener
+      
+      // Create a Response-like object to maintain compatibility with fetch API
+      const response = {
+        status: xhr.status,
+        statusText: xhr.statusText,
+        ok: xhr.status >= 200 && xhr.status < 300,
+        headers: new Headers(),
+        text: () => Promise.resolve(xhr.responseText),
+        json: () => {
+          try {
+            return Promise.resolve(JSON.parse(xhr.responseText));
+          } catch (e) {
+            return Promise.reject(e);
+          }
+        }
+      };
+
+      // Parse response headers
+      xhr.getAllResponseHeaders().split('\r\n').forEach(line => {
+        const parts = line.split(': ');
+        if (parts.length === 2) {
+          response.headers.set(parts[0], parts[1]);
+        }
+      });
+
+      resolve(response);
+    });
+
+    // Handle network errors
+    xhr.addEventListener('error', () => {
+      cleanup(); // Remove abort event listener
+      const error = new Error('Network Error');
+      error.type = 'network';
+      reject(error);
+    });
+
+    // Handle timeout
+    xhr.addEventListener('timeout', () => {
+      cleanup(); // Remove abort event listener
+      const error = new Error('Request Timeout');
+      error.type = 'timeout';
+      reject(error);
+    });
+
+    // Handle request abortion
+    xhr.addEventListener('abort', () => {
+      cleanup(); // Remove abort event listener
+      const error = new DOMException('The operation was aborted.', 'AbortError');
+      reject(error);
+    });
+
+    // Send the request
+    xhr.send(body);
+  });
+};
+
+/**
  * Retries server requests until it resolved.
  * @param {String} url API endpoint url
- * @param {Object} options Request options. It contains `retryable`
+ * @param {Object} options Request options. It contains `retryable` and potentially `onUploadProgress`
  * @param {Number} maxAttempts Maximum retry attempt. Default is 5
  * @param {Number} delay delay between retry. Default is 200.
  * @returns {Promise}
@@ -25,7 +150,17 @@ const _retryFetch = async (url, options, maxAttempts, delay) => {
 
   return await retry(
     async () => {
-      let res = await fetch(url, opts);
+      let res;
+      
+      // Use XMLHttpRequest for FormData uploads to support progress tracking
+      if (opts.body instanceof FormData && opts.onUploadProgress) {
+        res = await _uploadWithProgress(url, opts);
+      } else {
+        // Remove onUploadProgress from opts for regular fetch as it's not supported
+        const fetchOpts = { ...opts };
+        delete fetchOpts['onUploadProgress'];
+        res = await fetch(url, fetchOpts);
+      }
 
       if (_isRetryableError(res, options)) {
         throw res;
@@ -52,7 +187,7 @@ const _retryFetch = async (url, options, maxAttempts, delay) => {
 /**
  * It retries request infinitely if it failed with network error.
  * @param {String} url API endpoint url
- * @param {Object} options Request options. It contains `retryable`
+ * @param {Object} options Request options. It contains `retryable` and potentially `onUploadProgress`
  * @param {Number} maxAttempts Maximum retry attempt.
  * @param {Number} delay delay between retry.
  * @param {Boolean} offlineRetry whether it should retry in offline or not.
@@ -65,7 +200,17 @@ const _retryOnNetworkError = async (url, options, maxAttempts, delay, offlineRet
   return await retry(
     async () => {
       try {
-        let res = await fetch(url, options);
+        let res;
+        
+        // Use XMLHttpRequest for FormData uploads to support progress tracking
+        if (opts.body instanceof FormData && opts.onUploadProgress) {
+          res = await _uploadWithProgress(url, opts);
+        } else {
+          // Remove onUploadProgress from opts for regular fetch as it's not supported
+          const fetchOpts = { ...opts };
+          delete fetchOpts['onUploadProgress'];
+          res = await fetch(url, fetchOpts);
+        }
 
         if (_isRetryableError(res, options)) {
           return await _retryFetch(url, options, maxAttempts, delay);
@@ -87,11 +232,21 @@ const _retryOnNetworkError = async (url, options, maxAttempts, delay, offlineRet
 /**
  * It retry fetch request internally if if failed due to network error
  * @param {String} url API endpoint url
- * @param {Object} options Request options. It contains `retryable`
+ * @param {Object} options Request options. It contains `retryable`, `onUploadProgress`, and `signal`
+ *   - retryable: Boolean indicating if request should be retried on certain status codes
+ *   - onUploadProgress: Function callback for FormData uploads with signature ({speed, totalBytes, sentBytes, percentage}) => {}
+ *     * speed: Bytes sent per second, calculated from average of last 10 progress samples
+ *     * sentBytes: Total number of bytes sent so far
+ *     * totalBytes: Total bytes to be sent to the server (includes file content + form data)
+ *     * percentage: A fractional number between 0 to 1, calculated as sentBytes / totalBytes
+ *   - body: When specified as FormData, request is sent using XMLHttpRequest for progress tracking
+ *   - method: HTTP method (default: POST for FormData uploads)
+ *   - headers: Request headers (content-type is automatically set for FormData)
+ *   - signal: AbortSignal from AbortController to cancel the request
  * @param {Number} maxAttempts Maximum retry attempt. Default is 5
  * @param {Number} delay delay between retry. Default is 200.
  * @param {Boolean} offlineRetry whether it should retry in offline or not. Default is true.
- * @returns {Promise}
+ * @returns {Promise} Promise that resolves to Response object (for regular fetch) or Response-like object (for XMLHttpRequest uploads)
  */
 export default async (url, options = {}, maxAttempts = 5, delay = 200, offlineRetry = true) => {
   try {
