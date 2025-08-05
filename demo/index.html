@@ -4,10 +4,43 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Document</title>
+  <title>@dreamworld/fetch Demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    .upload-section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+    .progress-bar { width: 100%; height: 20px; background-color: #f0f0f0; border-radius: 10px; overflow: hidden; margin: 10px 0; }
+    .progress-fill { height: 100%; background-color: #4CAF50; transition: width 0.3s ease; }
+    .progress-info { font-size: 14px; margin: 5px 0; }
+    button { padding: 10px 20px; margin: 10px 0; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background-color: #45a049; }
+    button:disabled { background-color: #cccccc; cursor: not-allowed; }
+    input[type="file"] { margin: 10px 0; }
+    .test-section { margin: 20px 0; padding: 15px; background-color: #f9f9f9; border-radius: 5px; }
+  </style>
 </head>
 <body>
-  <h1>Demo page</h1>
+  <h1>@dreamworld/fetch Demo</h1>
+  
+  <div class="test-section">
+    <h2>Basic Fetch Test</h2>
+    <button id="basic-test">Test Basic Fetch</button>
+    <div id="basic-result"></div>
+  </div>
+
+  <div class="upload-section">
+    <h2>File Upload with Progress</h2>
+    <input type="file" id="file-input" multiple />
+    <input type="text" id="text-field" placeholder="Additional text data" />
+    <button id="upload-btn">Upload Files</button>
+    
+    <div class="progress-bar" style="display: none;">
+      <div class="progress-fill" id="progress-fill"></div>
+    </div>
+    
+    <div id="progress-info" class="progress-info"></div>
+    <div id="upload-result"></div>
+  </div>
+
   <script type="module" src="./index.js"></script>
 </body>
 </html>
