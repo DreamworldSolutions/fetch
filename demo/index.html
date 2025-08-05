@@ -32,6 +32,7 @@
     <input type="file" id="file-input" multiple />
     <input type="text" id="text-field" placeholder="Additional text data" />
     <button id="upload-btn">Upload Files</button>
+    <button id="cancel-btn" style="display: none; background-color: #f44336;">Cancel Upload</button>
     
     <div class="progress-bar" style="display: none;">
       <div class="progress-fill" id="progress-fill"></div>
@@ -39,6 +40,13 @@
     
     <div id="progress-info" class="progress-info"></div>
     <div id="upload-result"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Cancellable Request Test</h2>
+    <button id="long-request-btn">Start Long Request (10s)</button>
+    <button id="cancel-request-btn" style="display: none; background-color: #f44336;">Cancel Request</button>
+    <div id="long-request-result"></div>
   </div>
 
   <script type="module" src="./index.js"></script>

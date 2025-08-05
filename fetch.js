@@ -14,6 +14,7 @@ const _isRetryableError = (res, options) => {
 /**
  * Performs XMLHttpRequest-based upload with progress tracking support.
  * Used when body is FormData and onUploadProgress callback is provided.
+ * Properly handles AbortController signals and cleans up event listeners to prevent memory leaks.
  * @param {String} url API endpoint url
  * @param {Object} options Request options including FormData body and onUploadProgress
  * @returns {Promise} Promise that resolves to Response-like object
@@ -21,7 +22,31 @@ const _isRetryableError = (res, options) => {
 const _uploadWithProgress = (url, options) => {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    const { method = 'POST', headers = {}, body, onUploadProgress } = options;
+    const { method = 'POST', headers = {}, body, onUploadProgress, signal } = options;
+
+    // Handle AbortController signal for cancellation
+    let abortHandler = null;
+    if (signal) {
+      if (signal.aborted) {
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+        return;
+      }
+      
+      // Listen for abort signal
+      abortHandler = () => {
+        xhr.abort();
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+      };
+      signal.addEventListener('abort', abortHandler);
+    }
+
+    // Cleanup function to remove event listener
+    const cleanup = () => {
+      if (abortHandler && signal) {
+        signal.removeEventListener('abort', abortHandler);
+        abortHandler = null;
+      }
+    };
 
     // Set up the request
     xhr.open(method.toUpperCase(), url, true);
@@ -54,6 +79,8 @@ const _uploadWithProgress = (url, options) => {
 
     // Handle successful response
     xhr.addEventListener('load', () => {
+      cleanup(); // Remove abort event listener
+      
       // Create a Response-like object to maintain compatibility with fetch API
       const response = {
         status: xhr.status,
@@ -83,6 +110,7 @@ const _uploadWithProgress = (url, options) => {
 
     // Handle network errors
     xhr.addEventListener('error', () => {
+      cleanup(); // Remove abort event listener
       const error = new Error('Network Error');
       error.type = 'network';
       reject(error);
@@ -90,8 +118,16 @@ const _uploadWithProgress = (url, options) => {
 
     // Handle timeout
     xhr.addEventListener('timeout', () => {
+      cleanup(); // Remove abort event listener
       const error = new Error('Request Timeout');
       error.type = 'timeout';
+      reject(error);
+    });
+
+    // Handle request abortion
+    xhr.addEventListener('abort', () => {
+      cleanup(); // Remove abort event listener
+      const error = new DOMException('The operation was aborted.', 'AbortError');
       reject(error);
     });
 
@@ -196,12 +232,17 @@ const _retryOnNetworkError = async (url, options, maxAttempts, delay, offlineRet
 /**
  * It retry fetch request internally if if failed due to network error
  * @param {String} url API endpoint url
- * @param {Object} options Request options. It contains `retryable` and `onUploadProgress`
+ * @param {Object} options Request options. It contains `retryable`, `onUploadProgress`, and `signal`
  *   - retryable: Boolean indicating if request should be retried on certain status codes
  *   - onUploadProgress: Function callback for FormData uploads with signature ({speed, totalBytes, sentBytes, percentage}) => {}
+ *     * speed: Bytes sent per second, calculated from average of last 10 progress samples
+ *     * sentBytes: Total number of bytes sent so far
+ *     * totalBytes: Total bytes to be sent to the server (includes file content + form data)
+ *     * percentage: A fractional number between 0 to 1, calculated as sentBytes / totalBytes
  *   - body: When specified as FormData, request is sent using XMLHttpRequest for progress tracking
  *   - method: HTTP method (default: POST for FormData uploads)
  *   - headers: Request headers (content-type is automatically set for FormData)
+ *   - signal: AbortSignal from AbortController to cancel the request
  * @param {Number} maxAttempts Maximum retry attempt. Default is 5
  * @param {Number} delay delay between retry. Default is 200.
  * @param {Boolean} offlineRetry whether it should retry in offline or not. Default is true.
