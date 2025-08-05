@@ -7,7 +7,7 @@ A robust fetch wrapper with automatic retry logic, file upload progress tracking
 - ✅ **Automatic Retry**: Smart retry logic for network errors and specific HTTP status codes
 - ✅ **File Upload Progress**: Real-time upload progress tracking for FormData uploads
 - ✅ **Request Cancellation**: Cancel requests using AbortController API
-- ✅ **Speed Calculation**: Upload speed monitoring with smoothed averages
++ 🚧 **Speed Calculation**: Upload speed monitoring (coming soon - currently returns 0, implementation pending)
 - ✅ **Response Compatibility**: Maintains fetch API compatibility
 
 ## Installation
