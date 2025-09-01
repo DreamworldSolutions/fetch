@@ -162,12 +162,11 @@ const _retryFetch = async (url, options, maxAttempts, delay) => {
         res = await fetch(url, fetchOpts);
       }
 
-      const clonedRes = res.clone();
       if (_isRetryableError(res, options)) {
-        throw clonedRes;
+        throw res;
       }
 
-      return clonedRes;
+      return res;
     },
     {
       delay,
@@ -213,12 +212,11 @@ const _retryOnNetworkError = async (url, options, maxAttempts, delay, offlineRet
           res = await fetch(url, fetchOpts);
         }
 
-        const clonedRes = res.clone();
         if (_isRetryableError(res, options)) {
           return await _retryFetch(url, options, maxAttempts, delay);
         }
 
-        return clonedRes;
+        return res;
       } catch (error) {
         if (!error.status) {
           throw error;
