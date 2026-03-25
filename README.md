@@ -1,22 +1,32 @@
 # @dreamworld/fetch
 
-A robust fetch wrapper with automatic retry logic, file upload progress tracking, and request cancellation support.
+A drop-in replacement for the native `fetch` API that adds automatic retry with exponential backoff, FormData upload progress tracking via `XMLHttpRequest`, and request cancellation via `AbortController`.
 
-## Features
+---
 
-- ✅ **Automatic Retry**: Smart retry logic for network errors and specific HTTP status codes
-- ✅ **File Upload Progress**: Real-time upload progress tracking for FormData uploads
-- ✅ **Request Cancellation**: Cancel requests using AbortController API
-+ 🚧 **Speed Calculation**: Upload speed monitoring (coming soon - currently returns 0, implementation pending)
-- ✅ **Response Compatibility**: Maintains fetch API compatibility
+## 1. User Guide
 
-## Installation
+### Installation & Setup
 
 ```bash
 npm install @dreamworld/fetch
+# or
+yarn add @dreamworld/fetch
 ```
 
-## Basic Usage
+This package is an **ES Module** (`"type": "module"` in `package.json`). Use a bundler or environment that supports ES Modules.
+
+**Run the interactive demo:**
+
+```bash
+yarn start
+```
+
+Launches `@web/dev-server` at the `demo/index.html` app index.
+
+---
+
+### Basic Usage
 
 ```javascript
 import fetch from '@dreamworld/fetch';
@@ -25,7 +35,7 @@ import fetch from '@dreamworld/fetch';
 const response = await fetch('/api/data');
 const data = await response.json();
 
-// POST request with retry options
+// POST with custom retry behavior
 const response = await fetch('/api/users', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -34,9 +44,107 @@ const response = await fetch('/api/users', {
 });
 ```
 
-## File Upload with Progress
+---
 
-When uploading files using FormData, the library automatically switches to XMLHttpRequest to support progress tracking:
+### API Reference
+
+#### Main Function
+
+```
+fetch(url, options, maxAttempts, delay, offlineRetry)
+```
+
+| Parameter | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `url` | `string` | — | Yes | API endpoint URL |
+| `options` | `object` | `{}` | No | Request configuration (see below) |
+| `maxAttempts` | `number` | `5` | No | Maximum retry attempts for server errors |
+| `delay` | `number` | `200` | No | Initial retry delay in ms; grows exponentially |
+| `offlineRetry` | `boolean` | `true` | No | When `true`, retries infinitely on network errors |
+
+**Returns:** `Promise` — resolves to a standard `Response` object for regular requests, or a Response-compatible object for FormData uploads (see [XHR Response Object](#xhr-response-object)).
+
+---
+
+#### `options` Object
+
+Extends the standard [fetch `RequestInit`](https://developer.mozilla.org/en-US/docs/Web/API/fetch) with three additional properties:
+
+| Property | Type | Description |
+|---|---|---|
+| `method` | `string` | HTTP method. Defaults to `'POST'` for FormData uploads via XHR. |
+| `headers` | `object` | Request headers. `content-type` is automatically excluded when `body` is `FormData` (browser sets it with boundary). |
+| `body` | `string \| FormData \| ...` | Request body. Passing `FormData` alongside `onUploadProgress` routes the request through `XMLHttpRequest`. |
+| `retryable` | `boolean \| undefined` | Override default retry behavior. `true` = retry on any non-2xx; `false` = never retry; `undefined` (default) = retry only on HTTP 503. |
+| `signal` | `AbortSignal` | `AbortSignal` from an `AbortController`, used to cancel the request. |
+| `onUploadProgress` | `function` | Progress callback invoked during upload. **Only fires when `body` is `FormData`.** Signature: `({ sentBytes, totalBytes, percentage, speed }) => void` |
+
+---
+
+#### `onUploadProgress` Callback
+
+```javascript
+onUploadProgress: ({ sentBytes, totalBytes, percentage, speed }) => {
+  console.log(`${Math.round(percentage * 100)}%`);
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `sentBytes` | `number` | Total bytes uploaded so far |
+| `totalBytes` | `number` | Total bytes to be uploaded (file content + all form fields) |
+| `percentage` | `number` | Fractional value `0`–`1`, calculated as `sentBytes / totalBytes` |
+| `speed` | `number` | **Always `0`.** Speed calculation is not yet implemented. |
+
+> **Note:** `speed` is hardcoded to `0` in the current implementation. It is marked as a TODO for a future release.
+
+---
+
+#### XHR Response Object
+
+When the request uses `XMLHttpRequest` (i.e., `body instanceof FormData && onUploadProgress` is set), the resolved value is a Response-compatible object — **not** a native `Response` instance:
+
+| Property / Method | Type | Description |
+|---|---|---|
+| `status` | `number` | HTTP status code |
+| `statusText` | `string` | HTTP status text |
+| `ok` | `boolean` | `true` if `status` is `200`–`299` |
+| `headers` | `Headers` | Parsed response headers |
+| `text()` | `() => Promise<string>` | Returns raw response body as string |
+| `json()` | `() => Promise<any>` | Parses and returns JSON body; rejects if parsing fails |
+
+---
+
+### Retry Logic
+
+| Scenario | Behavior |
+|---|---|
+| **Network error** (no HTTP status, not a CORS error) | Retry every 2 seconds. Infinite retries if `offlineRetry=true`; single attempt if `offlineRetry=false`. |
+| **HTTP 503** | Retry with exponential backoff up to `maxAttempts`. |
+| **HTTP 2xx** | No retry. |
+| **HTTP 4xx** | No retry. |
+| **HTTP 5xx (non-503)** | No retry unless `retryable: true`. |
+| **`retryable: true`** | Retry on any non-2xx response. |
+| **`retryable: false`** | Never retry, regardless of status code. |
+| **CORS errors** (`error.type === 'cors'`) | Not retried. Returned directly. |
+
+**Exponential backoff formula:** `delay × 2^attempt`, capped at `5000ms`.
+
+---
+
+### Configuration Options
+
+| Constant | Scope | Value | Description |
+|---|---|---|---|
+| `NETWORK_ERROR_RETRY_TIME` | Internal | `2000` ms | Fixed interval between retries during network errors |
+
+These are internal constants and cannot be configured at runtime.
+
+---
+
+### Advanced Usage
+
+#### File Upload with Progress
 
 ```javascript
 import fetch from '@dreamworld/fetch';
@@ -44,72 +152,50 @@ import fetch from '@dreamworld/fetch';
 const formData = new FormData();
 formData.append('file', fileInput.files[0]);
 formData.append('description', 'My file');
+formData.append('timestamp', new Date().toISOString());
 
 const response = await fetch('/api/upload', {
   method: 'POST',
   body: formData,
-  onUploadProgress: ({ percentage, speed, sentBytes, totalBytes }) => {
-    console.log(`Progress: ${Math.round(percentage * 100)}%`);
-    console.log(`Speed: ${formatSpeed(speed)}`);
-    console.log(`Uploaded: ${sentBytes} / ${totalBytes} bytes`);
+  onUploadProgress: ({ sentBytes, totalBytes, percentage, speed }) => {
+    const pct = Math.round(percentage * 100);
+    const sentMB = (sentBytes / (1024 * 1024)).toFixed(2);
+    const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
+    console.log(`${pct}% — ${sentMB} MB / ${totalMB} MB`);
+    // speed is always 0 in current implementation
   }
 });
 
-function formatSpeed(bytesPerSecond) {
-  if (bytesPerSecond >= 1024 * 1024) {
-    return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`;
-  } else if (bytesPerSecond >= 1024) {
-    return `${(bytesPerSecond / 1024).toFixed(2)} KB/s`;
-  } else {
-    return `${bytesPerSecond} B/s`;
-  }
-}
+const result = await response.json();
 ```
 
-### Progress Callback Parameters
-
-The `onUploadProgress` callback receives an object with:
-
-- **`percentage`**: A number between 0 and 1 representing upload completion (sentBytes / totalBytes)
-- **`speed`**: Upload speed in bytes per second (smoothed average of last 10 samples)
-- **`sentBytes`**: Total bytes uploaded so far
-- **`totalBytes`**: Total bytes to be uploaded (includes file content + form data)
-
-## Request Cancellation
-
-Cancel requests using the standard AbortController API:
-
-### Basic Cancellation
+#### Request Cancellation
 
 ```javascript
 import fetch from '@dreamworld/fetch';
 
 const controller = new AbortController();
-const signal = controller.signal;
 
 try {
   const response = await fetch('/api/data', {
     method: 'GET',
-    signal: signal,
+    signal: controller.signal,
     retryable: true
   });
-  
   const data = await response.json();
-  console.log('Success:', data);
-  
 } catch (error) {
   if (error.name === 'AbortError') {
     console.log('Request was cancelled');
   } else {
-    console.error('Other error:', error);
+    throw error;
   }
 }
 
-// Cancel the request from anywhere
+// Cancel from anywhere:
 controller.abort();
 ```
 
-### File Upload Cancellation
+#### Upload Cancellation
 
 ```javascript
 const controller = new AbortController();
@@ -121,42 +207,41 @@ try {
     method: 'POST',
     body: formData,
     signal: controller.signal,
-    onUploadProgress: ({ percentage, speed }) => {
-      updateProgressBar(percentage);
-      updateSpeedDisplay(speed);
+    onUploadProgress: ({ percentage }) => {
+      progressBar.value = Math.round(percentage * 100);
     }
   });
-  
-  console.log('Upload successful');
-  
 } catch (error) {
   if (error.name === 'AbortError') {
-    console.log('Upload was cancelled');
-  } else {
-    console.error('Upload failed:', error);
+    console.log('Upload cancelled');
   }
 }
 
-// Cancel the upload
-controller.abort();
+controller.abort(); // cancel
 ```
 
-### Timeout-based Cancellation
+#### Custom Retry Parameters
+
+```javascript
+// Increase attempts for critical operations
+const response = await fetch('/api/critical', {}, 10, 500);
+
+// Reduce retries for user-initiated actions
+const response = await fetch('/api/user-action', {}, 3, 100);
+
+// Disable offline retry
+const response = await fetch('/api/data', {}, 5, 200, false);
+```
+
+#### Timeout-based Cancellation
 
 ```javascript
 const controller = new AbortController();
-const timeoutId = setTimeout(() => {
-  controller.abort();
-}, 30000); // 30 second timeout
+const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
 try {
-  const response = await fetch('/api/slow-endpoint', {
-    signal: controller.signal
-  });
-  
-  clearTimeout(timeoutId); // Clear timeout on success
-  console.log('Request completed within timeout');
-  
+  const response = await fetch('/api/slow-endpoint', { signal: controller.signal });
+  clearTimeout(timeoutId);
 } catch (error) {
   if (error.name === 'AbortError') {
     console.log('Request timed out');
@@ -164,252 +249,61 @@ try {
 }
 ```
 
-## Retry Logic
+---
 
-The library implements intelligent retry logic with the following behavior:
+## 2. Developer Guide / Architecture
 
-### Automatic Retry Scenarios
+### Architecture Overview
 
-- **Network Errors**: When no HTTP response is received (status code = 0), requests are retried infinitely with 2-second intervals
-- **503 Service Unavailable**: Temporary server unavailability is retried with exponential backoff
+`@dreamworld/fetch` is structured as a **decorator over the native `fetch` API** — a transparent wrapper that augments it with retry and progress capabilities while maintaining API compatibility.
 
-### No Retry Scenarios
+**Design patterns used:**
 
-- **2xx Success**: Successful responses (200-299) are never retried
-- **4xx Client Errors**: Client errors (400-499) are never retried as they indicate client-side issues
-- **5xx Server Errors** (except 503): Server errors like 500 and 504 are not retried to avoid server load and duplicate operations
+- **Decorator** — wraps native `fetch` without modifying its interface
+- **Strategy** — request path is selected at runtime (XHR vs. native fetch) based on the presence of `FormData` body and `onUploadProgress`
+- **Chain of Responsibility** — two retry layers are composed: network-level retry wraps server-level retry
 
-### Custom Retry Behavior
+**Module type:** ES Module (`"type": "module"`), single default export.
 
-Override default retry behavior using the `retryable` option:
+**Dependencies:**
 
-```javascript
-// Force retry on any non-2xx response
-const response = await fetch('/api/data', {
-  method: 'POST',
-  retryable: true
-});
+| Package | Role |
+|---|---|
+| `@lifeomic/attempt` | Powers both retry loops (exponential backoff + fixed-interval) |
+| `@dreamworld/pwa-helpers` | Listed as dependency; not referenced in the exported API surface |
+| `lodash-es` | Listed as dependency; not referenced in the exported API surface |
 
-// Disable retry completely
-const response = await fetch('/api/data', {
-  method: 'POST',
-  retryable: false
-});
+---
+
+### Request Routing
+
+```
+fetch(url, options, ...)
+  │
+  ├─ body instanceof FormData && onUploadProgress?
+  │     YES → _uploadWithProgress() via XMLHttpRequest
+  │     NO  → native fetch()
+  │
+  └─ wrapped in two retry layers:
+        _retryFetch          (server errors, exponential backoff)
+        _retryOnNetworkError (network errors, fixed 2s interval)
 ```
 
-### Retry Parameters
+---
 
-```javascript
-const response = await fetch(url, options, maxAttempts, delay, offlineRetry);
-```
+### Internal Functions
 
-- **`maxAttempts`** (default: 5): Maximum number of retry attempts
-- **`delay`** (default: 200ms): Initial delay between retries (grows exponentially)
-- **`offlineRetry`** (default: true): Whether to retry infinitely during network errors
+These functions are not exported. They are implementation details of `fetch.js`.
 
-## API Reference
+| Function | Signature | Responsibility |
+|---|---|---|
+| `_isRetryableError` | `(res, options) => boolean` | Returns `true` if the response/error should trigger a retry. Returns `false` for 2xx. Defaults to retry only on status 503; respects `options.retryable` override. |
+| `_uploadWithProgress` | `(url, options) => Promise` | Performs the request via `XMLHttpRequest`. Handles `AbortSignal`, fires `onUploadProgress` on XHR progress events, and returns a Response-compatible object on load. Cleans up abort event listeners via a `cleanup()` closure to prevent memory leaks. |
+| `_retryFetch` | `(url, options, maxAttempts, delay) => Promise` | Wraps the request (XHR or fetch) with exponential-backoff retry using `@lifeomic/attempt`. Aborts the retry loop for non-retryable errors. Strips `retryable` and `onUploadProgress` from the options passed to native `fetch`. |
+| `_retryOnNetworkError` | `(url, options, maxAttempts, delay, offlineRetry) => Promise` | Outer retry layer for network-level failures (no HTTP status). Uses a fixed `2000ms` delay. When `offlineRetry=false`, sets `maxAttempts=1` (no retry). Delegates to `_retryFetch` when the server responds with a retryable status. |
 
-### Main Function
+---
 
-```javascript
-fetch(url, options, maxAttempts, delay, offlineRetry)
-```
+### Memory Safety
 
-**Parameters:**
-- `url` (string): The request URL
-- `options` (object): Request options
-- `maxAttempts` (number, optional): Maximum retry attempts (default: 5)
-- `delay` (number, optional): Initial retry delay in ms (default: 200)
-- `offlineRetry` (boolean, optional): Enable infinite retry for network errors (default: true)
-
-### Options Object
-
-```javascript
-{
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | ...,
-  headers: { ... },
-  body: string | FormData | ...,
-  retryable: boolean,           // Override default retry behavior
-  signal: AbortSignal,          // For request cancellation
-  onUploadProgress: function    // Progress callback for FormData uploads
-}
-```
-
-### Response Object
-
-For regular requests, returns standard [Response](https://developer.mozilla.org/en-US/docs/Web/API/Response) object.
-
-For FormData uploads with progress tracking, returns a Response-compatible object with:
-- `status`, `statusText`, `ok`
-- `headers` (Headers instance)
-- `text()`, `json()` methods
-
-## Error Handling
-
-### Retry Errors
-
-```javascript
-try {
-  const response = await fetch('/api/data');
-} catch (error) {
-  // All retries exhausted
-  console.error('Request failed after retries:', error);
-}
-```
-
-### Cancellation Errors
-
-```javascript
-try {
-  const response = await fetch('/api/data', { signal });
-} catch (error) {
-  if (error.name === 'AbortError') {
-    console.log('Request was cancelled');
-  } else {
-    console.error('Other error:', error);
-  }
-}
-```
-
-### Upload Errors
-
-```javascript
-try {
-  const response = await fetch('/api/upload', {
-    method: 'POST',
-    body: formData,
-    onUploadProgress: ({ percentage }) => {
-      console.log(`${Math.round(percentage * 100)}% uploaded`);
-    }
-  });
-} catch (error) {
-  if (error.name === 'AbortError') {
-    console.log('Upload cancelled');
-  } else {
-    console.error('Upload failed:', error);
-  }
-}
-```
-
-## Browser Support
-
-- **Modern Browsers**: Full support for all features
-- **AbortController**: Required for cancellation (available in all modern browsers)
-- **FormData**: Required for upload progress tracking
-- **XMLHttpRequest**: Used internally for upload progress
-
-For older browsers, consider using polyfills:
-
-```bash
-npm install abortcontroller-polyfill
-```
-
-```javascript
-import 'abortcontroller-polyfill/dist/abortcontroller-polyfill-only';
-```
-
-## Best Practices
-
-### 1. Always Handle Cancellation Explicitly
-
-```javascript
-try {
-  const response = await fetch(url, { signal });
-} catch (error) {
-  if (error.name === 'AbortError') {
-    // Handle cancellation differently from other errors
-    console.log('Operation cancelled by user');
-    return;
-  }
-  throw error; // Re-throw other errors
-}
-```
-
-### 2. Cleanup Controllers
-
-```javascript
-let controller = new AbortController();
-
-const cleanup = () => {
-  if (controller) {
-    controller.abort();
-    controller = null;
-  }
-};
-
-// Cleanup on component unmount, route change, etc.
-```
-
-### 3. Provide User Feedback
-
-```javascript
-const uploadFile = async (file) => {
-  const controller = new AbortController();
-  
-  try {
-    showProgress(true);
-    
-    const response = await fetch('/upload', {
-      method: 'POST',
-      body: formData,
-      signal: controller.signal,
-      onUploadProgress: ({ percentage, speed }) => {
-        updateProgress(percentage, speed);
-      }
-    });
-    
-    showSuccess('Upload completed!');
-    
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      showMessage('Upload cancelled');
-    } else {
-      showError('Upload failed: ' + error.message);
-    }
-  } finally {
-    hideProgress();
-  }
-};
-```
-
-### 4. Use Appropriate Retry Settings
-
-```javascript
-// For critical operations, increase retry attempts
-const response = await fetch('/api/critical-data', {}, 10, 500);
-
-// For user-initiated actions, reduce retries
-const response = await fetch('/api/user-action', {}, 3, 100);
-
-// For background operations, allow infinite network retries
-const response = await fetch('/api/background-sync', {}, 5, 200, true);
-```
-
-## Demo
-
-Run the interactive demo to see all features in action:
-
-```bash
-yarn start
-```
-
-The demo showcases:
-- Basic fetch requests with retry
-- File upload with real-time progress tracking
-- Request cancellation examples
-- Error handling patterns
-
-## Migration from Standard Fetch
-
-The library is designed as a drop-in replacement for the standard fetch API:
-
-```javascript
-// Before
-const response = await fetch('/api/data');
-
-// After - same syntax, enhanced functionality
-import fetch from '@dreamworld/fetch';
-const response = await fetch('/api/data');
-```
-
-Additional features are opt-in and don't affect existing usage patterns.
+`_uploadWithProgress` attaches an `abort` event listener to the provided `AbortSignal`. A `cleanup()` closure removes this listener after any terminal XHR event (`load`, `error`, `timeout`, `abort`) to prevent memory leaks in long-lived pages.
