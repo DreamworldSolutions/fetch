@@ -7,8 +7,36 @@ const NETWORK_ERROR_RETRY_TIME = 2000; //In milliseconds.
 const _isRetryableError = (res, options) => {
   if(res.status >= 200 && res.status <= 299) return false;
 
+  // Gateway Timeout is never retried (even when `retryable` is set). Request is already timed out after a long wait;
+  // retrying it only adds more load on the server which is already slow.
+  if (res.status === 504) return false;
+
   let retryable = options.retryable ?? (res.status && res.status == 503);
   return !!retryable ? true : false;
+};
+
+/**
+ * It returns true if request is blocked by the browser (e.g. CORS), false otherwise.
+ * Browser rejects such request with the same error as network failure, so it's detected by a `no-cors` request to the
+ * server. `no-cors` request isn't blocked by CORS; so it succeeds only when server is reachable.
+ */
+const _isCorsError = async (url, options, error) => {
+  if (!(error instanceof TypeError || error.type === 'network') || options.mode === 'no-cors') return false;
+
+  // Device is surely offline; so no need to probe the server. Note: `navigator.onLine === true` doesn't guarantee
+  // internet connectivity (e.g. mobile without signal); so it isn't used to detect the CORS error.
+  if (navigator.onLine === false) return false;
+
+  try {
+    const { origin } = new URL(url, location.href);
+    // Same-origin request isn't subject to CORS.
+    if (origin === location.origin) return false;
+
+    await fetch(`${origin}/`, { method: 'HEAD', mode: 'no-cors', credentials: 'omit', cache: 'no-store' });
+    return true;
+  } catch (err) {
+    return false;
+  }
 };
 
 /**
@@ -252,10 +280,14 @@ export default async (url, options = {}, maxAttempts = 5, delay = 200, offlineRe
   try {
     return await _retryFetch(url, options, maxAttempts, delay);
   } catch (error) {
-    if (!error.status && error.type !== 'cors') {
-      return await _retryOnNetworkError(url, options, maxAttempts, delay, offlineRetry);
+    if (error.status) {
+      return error;
     }
 
-    return error;
+    if (await _isCorsError(url, options, error)) {
+      throw error;
+    }
+
+    return await _retryOnNetworkError(url, options, maxAttempts, delay, offlineRetry);
   }
 };
